@@ -197,13 +197,29 @@ fn main() {
         match pick("projectM-4") {
             Some(name) => println!("cargo:rustc-link-lib={kind}={name}"),
             None => {
-                eprintln!("no projectM-4 library found under {}:", dst.display());
-                for lib in &libs {
-                    eprintln!("  {}", lib.display());
+                // Fail loudly with the layout: a quiet fallback just moves
+                // the error to the linker, where the listing is invisible.
+                let mut listing = String::new();
+                fn walk(dir: &std::path::Path, out: &mut String, depth: usize) {
+                    if depth > 4 {
+                        return;
+                    }
+                    let Ok(entries) = std::fs::read_dir(dir) else {
+                        return;
+                    };
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        out.push_str(&format!("{}{}\n", "  ".repeat(depth), path.display()));
+                        if path.is_dir() {
+                            walk(&path, out, depth + 1);
+                        }
+                    }
                 }
-                // Fall back to the old guess so the error names something.
-                let suffix = if profile == "release" { "" } else { "d" };
-                println!("cargo:rustc-link-lib={kind}=projectM-4{suffix}");
+                walk(&dst, &mut listing, 0);
+                panic!(
+                    "no projectM-4 library found under {}; the install laid out:\n{listing}",
+                    dst.display()
+                );
             }
         }
         if cfg!(feature = "playlist") {
