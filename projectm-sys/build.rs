@@ -132,29 +132,84 @@ fn main() {
 
     // Platform and feature-specific library linking
     if cfg!(target_os = "windows") || cfg!(target_os = "emscripten") {
-        // Whether the debug postfix was applied depends on the CMake
-        // generator; link whatever was actually installed.
-        let lib_dir = dst.join("lib");
-        let suffix = if profile != "release" && lib_dir.join("projectM-4d.lib").exists() {
-            "d"
-        } else {
-            ""
-        };
+        // Where the library lands and whether it carries the debug postfix
+        // both depend on the CMake generator; find what was actually made,
+        // point the linker at its folder, and link it by the name it has.
+        fn find_libs(dir: &std::path::Path, found: &mut Vec<std::path::PathBuf>, depth: usize) {
+            if depth > 6 {
+                return;
+            }
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    find_libs(&path, found, depth + 1);
+                } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    let stem = name.trim_start_matches("lib");
+                    if stem.starts_with("projectM-4")
+                        && (name.ends_with(".lib") || name.ends_with(".a"))
+                    {
+                        found.push(path.clone());
+                    }
+                }
+            }
+        }
+        let mut libs = Vec::new();
+        find_libs(&dst, &mut libs, 0);
         let kind = if cfg!(feature = "static") {
             "static"
         } else {
             "dylib"
         };
-        println!("cargo:rustc-link-lib={kind}=projectM-4{suffix}");
+        let pick = |base: &str| -> Option<String> {
+            let candidates: Vec<&std::path::PathBuf> = libs
+                .iter()
+                .filter(|path| {
+                    path.file_stem()
+                        .and_then(|stem| stem.to_str())
+                        .map(|stem| {
+                            let stem = stem.trim_start_matches("lib");
+                            stem == base || stem == format!("{base}d")
+                        })
+                        .unwrap_or(false)
+                })
+                .collect();
+            let debug_first = profile != "release";
+            let best = candidates
+                .iter()
+                .max_by_key(|path| {
+                    let is_debug = path
+                        .file_stem()
+                        .and_then(|stem| stem.to_str())
+                        .is_some_and(|stem| stem.ends_with('d'));
+                    is_debug == debug_first
+                })
+                .or(candidates.first())?;
+            if let Some(parent) = best.parent() {
+                println!("cargo:rustc-link-search=native={}", parent.display());
+            }
+            best.file_stem()
+                .and_then(|stem| stem.to_str())
+                .map(|stem| stem.trim_start_matches("lib").to_string())
+        };
+        match pick("projectM-4") {
+            Some(name) => println!("cargo:rustc-link-lib={kind}={name}"),
+            None => {
+                eprintln!("no projectM-4 library found under {}:", dst.display());
+                for lib in &libs {
+                    eprintln!("  {}", lib.display());
+                }
+                // Fall back to the old guess so the error names something.
+                let suffix = if profile == "release" { "" } else { "d" };
+                println!("cargo:rustc-link-lib={kind}=projectM-4{suffix}");
+            }
+        }
         if cfg!(feature = "playlist") {
-            let playlist_suffix = if profile != "release"
-                && lib_dir.join("projectM-4-playlistd.lib").exists()
-            {
-                "d"
-            } else {
-                ""
-            };
-            println!("cargo:rustc-link-lib={kind}=projectM-4-playlist{playlist_suffix}");
+            if let Some(name) = pick("projectM-4-playlist") {
+                println!("cargo:rustc-link-lib={kind}={name}");
+            }
         }
     } else {
         // For other platforms (Linux, macOS)
