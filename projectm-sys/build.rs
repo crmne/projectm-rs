@@ -83,8 +83,13 @@ fn main() {
 
         // Configure and build libprojectM using CMake for Windows
         let mut cmake_config = cmake::Config::new(&projectm_path);
+        // Respect an explicit CMAKE_GENERATOR from the environment; the
+        // Visual Studio 17 generator fails on machines that carry another
+        // Visual Studio (GitHub's windows-latest images ship VS 2026).
+        if std::env::var_os("CMAKE_GENERATOR").is_none() {
+            cmake_config.generator("Visual Studio 17 2022");
+        }
         cmake_config
-            .generator("Visual Studio 17 2022")
             .define("CMAKE_TOOLCHAIN_FILE", vcpkg_toolchain_str)
             .define("VCPKG_TARGET_TRIPLET", "x64-windows-static-md")
             .define(
