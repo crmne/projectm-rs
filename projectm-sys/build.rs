@@ -132,31 +132,29 @@ fn main() {
 
     // Platform and feature-specific library linking
     if cfg!(target_os = "windows") || cfg!(target_os = "emscripten") {
-        // Static or Dynamic linking based on 'static' feature
-        if cfg!(feature = "static") {
-            if profile == "release" {
-                println!("cargo:rustc-link-lib=static=projectM-4");
-                if cfg!(feature = "playlist") {
-                    println!("cargo:rustc-link-lib=static=projectM-4-playlist");
-                }
-            } else {
-                println!("cargo:rustc-link-lib=static=projectM-4d");
-                if cfg!(feature = "playlist") {
-                    println!("cargo:rustc-link-lib=static=projectM-4-playlistd");
-                }
-            }
+        // Whether the debug postfix was applied depends on the CMake
+        // generator; link whatever was actually installed.
+        let lib_dir = dst.join("lib");
+        let suffix = if profile != "release" && lib_dir.join("projectM-4d.lib").exists() {
+            "d"
         } else {
-            if profile == "release" {
-                println!("cargo:rustc-link-lib=dylib=projectM-4");
-                if cfg!(feature = "playlist") {
-                    println!("cargo:rustc-link-lib=dylib=projectM-4-playlist");
-                }
+            ""
+        };
+        let kind = if cfg!(feature = "static") {
+            "static"
+        } else {
+            "dylib"
+        };
+        println!("cargo:rustc-link-lib={kind}=projectM-4{suffix}");
+        if cfg!(feature = "playlist") {
+            let playlist_suffix = if profile != "release"
+                && lib_dir.join("projectM-4-playlistd.lib").exists()
+            {
+                "d"
             } else {
-                println!("cargo:rustc-link-lib=dylib=projectM-4d");
-                if cfg!(feature = "playlist") {
-                    println!("cargo:rustc-link-lib=dylib=projectM-4-playlistd");
-                }
-            }
+                ""
+            };
+            println!("cargo:rustc-link-lib={kind}=projectM-4-playlist{playlist_suffix}");
         }
     } else {
         // For other platforms (Linux, macOS)
