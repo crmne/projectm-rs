@@ -158,6 +158,9 @@ fn main() {
         }
         let mut libs = Vec::new();
         find_libs(&dst, &mut libs, 0);
+        // The target being built for, not the machine building it: a
+        // cross build from an MSVC host still links the GNU way.
+        let msvc = env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
         let kind = if cfg!(feature = "static") {
             "static"
         } else {
@@ -190,9 +193,20 @@ fn main() {
             if let Some(parent) = best.parent() {
                 println!("cargo:rustc-link-search=native={}", parent.display());
             }
-            best.file_stem()
-                .and_then(|stem| stem.to_str())
-                .map(|stem| stem.trim_start_matches("lib").to_string())
+            best.file_stem().and_then(|stem| stem.to_str()).map(|stem| {
+                // MSVC links a library by the name of its file, `lib`
+                // and all: what CMake wrote as `libprojectM-4d.lib`
+                // has to be asked for as `libprojectM-4d`. Every
+                // other linker puts the `lib` back itself, so there
+                // it comes off. Stripping it everywhere sent the
+                // Windows linker looking for a file that was never
+                // made, right next to the one that was.
+                if msvc {
+                    stem.to_string()
+                } else {
+                    stem.trim_start_matches("lib").to_string()
+                }
+            })
         };
         match pick("projectM-4") {
             Some(name) => println!("cargo:rustc-link-lib={kind}={name}"),
