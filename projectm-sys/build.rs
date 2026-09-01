@@ -83,6 +83,15 @@ fn main() {
 
         // Configure and build libprojectM using CMake for Windows
         let mut cmake_config = cmake::Config::new(&projectm_path);
+        // Rust links the release C runtime on MSVC whatever profile it is
+        // building, and a libprojectM built Debug wants the debug one.
+        // The two disagree about `_CrtDbgReport` and about iterator
+        // debugging, and the link fails on a wall of unresolved symbols.
+        // Build it optimised there, which is what a visualiser wants
+        // anyway: a debug libprojectM is too slow to watch.
+        if env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+            cmake_config.profile("Release");
+        }
         // Respect an explicit CMAKE_GENERATOR from the environment; the
         // Visual Studio 17 generator fails on machines that carry another
         // Visual Studio (GitHub's windows-latest images ship VS 2026).
