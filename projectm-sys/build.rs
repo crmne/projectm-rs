@@ -70,8 +70,23 @@ fn main() {
         // Set VCPKG_ROOT for CMake
         env::set_var("VCPKG_ROOT", &vcpkg_root);
 
-        // Define the installation path for vcpkg
-        let vcpkg_installed = vcpkg_root.join("installed").join("x64-windows-static-md");
+        // Match libprojectM and its vcpkg dependencies to Rust's C runtime.
+        // Release binaries can opt into `crt-static` and remain one file;
+        // ordinary consumers retain the dynamic runtime they had before.
+        let static_crt = env::var("CARGO_CFG_TARGET_FEATURE")
+            .map(|features| features.split(',').any(|feature| feature == "crt-static"))
+            .unwrap_or(false);
+        let vcpkg_triplet = if static_crt {
+            "x64-windows-static"
+        } else {
+            "x64-windows-static-md"
+        };
+        let msvc_runtime = if static_crt {
+            "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+        } else {
+            "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL"
+        };
+        let vcpkg_installed = vcpkg_root.join("installed").join(vcpkg_triplet);
         let vcpkg_installed_str = vcpkg_installed.to_str().unwrap();
 
         // Define projectM_Eval_DIR and store in a variable
@@ -100,11 +115,8 @@ fn main() {
         }
         cmake_config
             .define("CMAKE_TOOLCHAIN_FILE", vcpkg_toolchain_str)
-            .define("VCPKG_TARGET_TRIPLET", "x64-windows-static-md")
-            .define(
-                "CMAKE_MSVC_RUNTIME_LIBRARY",
-                "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL",
-            )
+            .define("VCPKG_TARGET_TRIPLET", vcpkg_triplet)
+            .define("CMAKE_MSVC_RUNTIME_LIBRARY", msvc_runtime)
             .define("ENABLE_PLAYLIST", enable_playlist_flag)
             .define("projectM_Eval_DIR", projectm_eval_dir_str)
             .define("CMAKE_PREFIX_PATH", vcpkg_installed_str)
